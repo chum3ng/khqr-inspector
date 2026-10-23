@@ -350,13 +350,16 @@ summary:hover { color: var(--text); }
 #crcToolResult { font-weight: 650; letter-spacing: .06em; }
 #changeSummary, #outputValidation { margin-top: .5rem; }
 
-/* Top row: compact input panel with the QR code beside it */
-.top-row { display: grid; gap: 1rem; grid-template-columns: minmax(0, 1fr) 15.5rem; align-items: start; }
-#inputPanel { padding: .75rem .9rem; }
+/* Top row: input panel on the left, QR code on the right, equal height */
+.top-row { display: grid; gap: 1rem; grid-template-columns: minmax(0, 1fr) 18rem; align-items: stretch; }
+#inputPanel { display: flex; flex-direction: column; padding: .75rem .9rem; }
 #inputPanel .panel-head { margin-bottom: .4rem; }
+#inputPanel #rawInput { flex: 1 1 auto; min-height: 4.5rem; }   /* grows to fill the row */
 #inputPanel .toolbar { margin: .5rem 0 .4rem; gap: .4rem; }
-#qrPanel { padding: .75rem .9rem; }
-#qrPanel .panel-head { margin-bottom: .4rem; }
+#qrPanel { display: flex; flex-direction: column; padding: .75rem .9rem; }
+#qrPanel .panel-head { margin-bottom: .4rem; gap: .1rem .5rem; }
+#qrTitle { white-space: nowrap; }
+#qrInfo { font-size: .7rem; }
 #qrPanel .toolbar { margin: .5rem 0 0; gap: .4rem; flex-wrap: nowrap; }
 #qrLevel { flex: 1 1 auto; min-width: 0; }
 .qr-frame {
