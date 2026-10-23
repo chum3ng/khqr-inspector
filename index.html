@@ -1,0 +1,433 @@
+<!DOCTYPE html>
+<html lang="en" ng-app="khqrInspector">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<!-- Blocks fetch/XHR/WebSocket so the tool cannot make network requests with payload data. -->
+<meta http-equiv="Content-Security-Policy" content="connect-src 'none'; object-src 'none'; base-uri 'none'; form-action 'none'">
+<meta name="referrer" content="no-referrer">
+<title>KHQR Inspector</title>
+<link rel="stylesheet" href="styles.css">
+</head>
+<body ng-controller="KhqrController as vm" data-theme="{{vm.theme}}">
+<div class="app ng-cloak" ng-cloak>
+
+<header id="appHeader" class="app-header">
+  <div class="brand">
+    <h1>KHQR Inspector</h1>
+    <p class="subtitle">Decode · Edit · Validate · CRC</p>
+  </div>
+  <div class="header-actions">
+    <button id="themeToggle" type="button" class="btn" ng-click="vm.toggleTheme()" aria-pressed="{{vm.theme === 'dark'}}">{{vm.theme === 'dark' ? 'Light theme' : 'Dark theme'}}</button>
+    <button id="resetButton" type="button" class="btn" ng-click="vm.resetApplication()">Reset</button>
+  </div>
+</header>
+
+<main id="main">
+
+<!-- INPUT PANEL -->
+<section id="inputPanel" class="panel" aria-labelledby="inputTitle">
+  <div class="panel-head">
+    <h2 id="inputTitle">QR payload</h2>
+    <div class="stats">
+      <span id="charCount">{{vm.stats.charCount}} characters</span>
+      <span id="payloadLength">Payload length {{vm.stats.payloadLength}}</span>
+    </div>
+  </div>
+  <label class="sr-only" for="rawInput">Raw KHQR payload</label>
+  <textarea id="rawInput" class="mono" rows="5" spellcheck="false" autocomplete="off" autocapitalize="off" autocorrect="off"
+    placeholder="Paste a raw KHQR payload, for example one that starts with 000201"
+    ng-model="vm.rawInput" ng-change="vm.onRawInputChange()" ng-keydown="vm.onInputKeydown($event)" aria-describedby="inputHint"></textarea>
+  <div class="toolbar">
+    <button id="decodeButton" type="button" class="btn btn-primary" ng-click="vm.decode()">Decode</button>
+    <button id="pasteButton" type="button" class="btn" ng-click="vm.pasteFromClipboard()">Paste</button>
+    <label class="sr-only" for="sampleSelect">Sample payload</label>
+    <select id="sampleSelect" ng-model="vm.selectedSampleId" ng-options="s.id as s.title for s in vm.samples"></select>
+    <button id="loadSampleButton" type="button" class="btn" ng-click="vm.loadSample(vm.selectedSampleId)">Load sample</button>
+    <button id="clearButton" type="button" class="btn" ng-click="vm.clearInput()">Clear</button>
+    <label class="check"><input id="autoDecodeOption" type="checkbox" ng-model="vm.options.autoDecode" ng-change="vm.onOptionsChanged()"> Decode as I type</label>
+  </div>
+  <p id="inputHint" class="hint">Press Ctrl+Enter to decode. Payloads are processed in this page only.</p>
+  <div id="inputError" class="alert alert-error" role="alert" ng-if="vm.parseError">
+    <p><strong>{{vm.parseError.message}}</strong><span ng-if="vm.parseError.position !== null"> (character position {{vm.parseError.position}})</span></p>
+    <pre class="mono error-context"><span>{{vm.parseError.before}}</span><mark>{{vm.parseError.at}}</mark><span>{{vm.parseError.after}}</span></pre>
+    <p ng-if="vm.parseError.hint">{{vm.parseError.hint}}</p>
+  </div>
+  <div id="inputMessage" class="alert" ng-class="'alert-' + vm.inputMessage.type" role="status" ng-if="vm.inputMessage">{{vm.inputMessage.text}}</div>
+</section>
+
+<!-- SUMMARY PANEL -->
+<section id="summaryPanel" class="summary" aria-label="Status summary">
+  <article class="status-card" ng-repeat="card in vm.statusCardDefs track by card.key" id="status-{{card.key}}" ng-class="'status-' + vm.status[card.key].state">
+    <h3>{{card.title}}</h3>
+    <p class="status-label">{{vm.status[card.key].label}}</p>
+    <p class="status-detail">{{vm.status[card.key].detail}}</p>
+  </article>
+  <article class="status-card" id="status-tagCount">
+    <h3>Parsed tags</h3>
+    <p class="status-label">{{vm.status.tagCount}}</p>
+    <p class="status-detail">{{vm.status.topLevelCount}} top-level, {{vm.status.nestedCount}} nested</p>
+  </article>
+</section>
+
+<!-- WORKSPACE -->
+<div id="workspace" class="workspace">
+
+  <section id="treePanel" class="panel" aria-labelledby="treeTitle">
+    <div class="panel-head">
+      <h2 id="treeTitle">Decoded tags</h2>
+      <div class="btn-group">
+        <button id="expandAllButton" type="button" class="btn btn-small" ng-click="vm.expandAll()" ng-disabled="!vm.hasDecoded">Expand all</button>
+        <button id="collapseAllButton" type="button" class="btn btn-small" ng-click="vm.collapseAll()" ng-disabled="!vm.hasDecoded">Collapse all</button>
+      </div>
+    </div>
+    <div class="tree-tools">
+      <label class="sr-only" for="treeSearch">Search tags</label>
+      <input id="treeSearch" type="search" autocomplete="off" placeholder="Search by tag ID, name or value" ng-model="vm.search.query" ng-change="vm.onSearchChange()">
+      <button id="searchPrevButton" type="button" class="btn btn-small" ng-click="vm.gotoMatch(-1)" ng-disabled="!vm.search.matches.length" aria-label="Previous match">Prev</button>
+      <button id="searchNextButton" type="button" class="btn btn-small" ng-click="vm.gotoMatch(1)" ng-disabled="!vm.search.matches.length" aria-label="Next match">Next</button>
+      <button id="searchClearButton" type="button" class="btn btn-small" ng-click="vm.clearSearch()" ng-disabled="!vm.search.query">Clear</button>
+      <span id="searchCount" class="hint" aria-live="polite" ng-if="vm.search.query">{{vm.search.matches.length ? (vm.search.activeIndex + 1) + ' of ' + vm.search.matches.length : 'No matches'}}</span>
+      <label class="sr-only" for="treeFilter">Filter tags</label>
+      <select id="treeFilter" ng-model="vm.treeFilter">
+        <option value="all">All tags</option>
+        <option value="errors">With errors</option>
+        <option value="warnings">With warnings</option>
+        <option value="templates">Templates</option>
+        <option value="unknown">Unknown tags</option>
+        <option value="modified">Edited</option>
+      </select>
+    </div>
+
+    <p class="empty" ng-if="!vm.hasDecoded">Decode a payload to see its tags here.</p>
+    <ul id="tagTree" class="tree" role="tree" aria-label="Decoded TLV tags" ng-if="vm.hasDecoded">
+      <li class="tree-item" role="none" ng-repeat="node in vm.tree track by node.uid" ng-include="'tagNode.html'" ng-show="vm.isNodeVisible(node)"></li>
+    </ul>
+
+    <form id="addTagForm" class="inline-form" ng-submit="vm.addTopLevelTag()" novalidate>
+      <h3>Add top-level tag</h3>
+      <div class="input-row">
+        <input id="newTagId" class="mono" list="knownTagIds" maxlength="2" inputmode="numeric" placeholder="ID" aria-label="New tag ID" autocomplete="off" ng-model="vm.newTag.id">
+        <input id="newTagValue" class="mono" placeholder="Value" aria-label="New tag value" autocomplete="off" ng-model="vm.newTag.value">
+        <button id="addTagButton" type="submit" class="btn">Add tag</button>
+      </div>
+      <p class="field-error" role="alert" ng-if="vm.newTagError">{{vm.newTagError}}</p>
+    </form>
+    <datalist id="knownTagIds"><option ng-repeat="t in vm.knownTagOptions track by t.id" value="{{t.id}}" label="{{t.name}}"></option></datalist>
+  </section>
+
+  <section id="editorPanel" class="panel" aria-labelledby="editorTitle">
+    <div class="panel-head"><h2 id="editorTitle">Tag details</h2></div>
+    <p class="empty" ng-if="!vm.selectedNode">Select a tag in the tree to inspect or edit it.</p>
+
+    <div id="tagEditor" ng-if="vm.selectedNode">
+      <p class="path" id="selectedPath">Path <code>{{vm.selectedPathLabel}}</code></p>
+      <h3 id="selectedName">{{vm.getTagName(vm.selectedNode)}}</h3>
+      <p class="desc" id="selectedDescription">{{vm.selectedMeta.description}}</p>
+      <ul class="meta-list">
+        <li class="badge badge-warning" ng-if="!vm.selectedMeta.known">Unknown tag, value preserved as is</li>
+        <li class="badge" ng-if="vm.selectedMeta.presence">{{vm.selectedMeta.presence}}</li>
+        <li class="badge" ng-if="vm.selectedMeta.maxLength">Max length {{vm.selectedMeta.maxLength}}</li>
+        <li class="badge" ng-if="vm.selectedMeta.format">Format: {{vm.selectedMeta.format}}</li>
+        <li class="badge" ng-if="vm.selectedMeta.unique">Appears once</li>
+      </ul>
+
+      <div id="removeConfirm" class="alert alert-warning" role="alertdialog" ng-if="vm.pendingRemoval">
+        <p>Remove tag <code>{{vm.pendingRemoval.path}}</code>?</p>
+        <ul ng-if="vm.removalWarnings.length"><li ng-repeat="w in vm.removalWarnings track by $index">{{w}}</li></ul>
+        <div class="btn-group">
+          <button id="confirmRemoveButton" type="button" class="btn btn-danger" ng-click="vm.confirmRemove()">Remove tag</button>
+          <button id="cancelRemoveButton" type="button" class="btn" ng-click="vm.cancelRemove()">Keep tag</button>
+        </div>
+      </div>
+
+      <div class="field-row">
+        <div class="field">
+          <label for="editTagId">Tag ID</label>
+          <input id="editTagId" class="mono" maxlength="2" inputmode="numeric" autocomplete="off" ng-model="vm.selectedNode.id" ng-change="vm.onTagIdChanged(vm.selectedNode)" ng-disabled="!vm.canEditTagId(vm.selectedNode)">
+        </div>
+        <div class="field">
+          <span class="label">Length</span>
+          <output id="lengthInfo" class="mono">{{vm.getLength(vm.selectedNode)}}<span ng-if="vm.selectedMeta.maxLength"> of {{vm.selectedMeta.maxLength}}</span>, length field {{vm.getLengthField(vm.selectedNode)}}</output>
+        </div>
+      </div>
+
+      <!-- Leaf value editor -->
+      <div class="field" ng-if="!vm.selectedNode.isTemplate">
+        <label for="editTagValue">Value</label>
+        <textarea id="editTagValue" class="mono" rows="3" spellcheck="false" autocomplete="off" ng-model="vm.selectedNode.value" ng-change="vm.onValueChanged(vm.selectedNode)" ng-readonly="vm.isValueReadOnly(vm.selectedNode)"></textarea>
+        <p class="hint" ng-if="vm.isValueReadOnly(vm.selectedNode)">The CRC value is calculated from the payload. Use Recalculate CRC to refresh it.</p>
+        <p class="field-error" role="alert" ng-if="vm.editorError">{{vm.editorError}}</p>
+        <button id="parseNestedButton" type="button" class="btn btn-small" ng-if="vm.canParseAsTemplate(vm.selectedNode)" ng-click="vm.parseAsTemplate(vm.selectedNode)">Parse as nested TLV</button>
+      </div>
+
+      <!-- Nested template editor -->
+      <div id="subtagEditor" ng-if="vm.selectedNode.isTemplate">
+        <div class="panel-head">
+          <h3>Subtags</h3>
+          <button id="toggleRawButton" type="button" class="btn btn-small" ng-click="vm.toggleRawMode(vm.selectedNode)">{{vm.selectedNode.rawMode ? 'Edit as fields' : 'Edit as raw value'}}</button>
+        </div>
+
+        <div ng-if="!vm.selectedNode.rawMode">
+          <div class="subtag-row" ng-repeat="child in vm.selectedNode.children track by child.uid" ng-class="{'is-modified': vm.isModified(child)}">
+            <input class="mono subtag-id" maxlength="2" inputmode="numeric" aria-label="Subtag ID" autocomplete="off" ng-model="child.id" ng-change="vm.onTagIdChanged(child)">
+            <span class="subtag-name">{{vm.getTagName(child)}}</span>
+            <input class="mono subtag-value" aria-label="Value of subtag {{child.id}}" autocomplete="off" ng-if="!child.isTemplate" ng-model="child.value" ng-change="vm.onValueChanged(child)">
+            <button type="button" class="btn btn-small" ng-if="child.isTemplate" ng-click="vm.selectNode(child)">Open nested template</button>
+            <span class="tag-length" title="Length">{{vm.getLength(child)}}</span>
+            <div class="btn-group">
+              <button type="button" class="btn btn-small" ng-click="vm.moveNode(child, -1)" ng-disabled="!vm.canMoveNode(child, -1)" aria-label="Move subtag {{child.id}} up">Up</button>
+              <button type="button" class="btn btn-small" ng-click="vm.moveNode(child, 1)" ng-disabled="!vm.canMoveNode(child, 1)" aria-label="Move subtag {{child.id}} down">Down</button>
+              <button type="button" class="btn btn-small" ng-click="vm.resetNode(child)" ng-disabled="!vm.canResetNode(child)" aria-label="Reset subtag {{child.id}}">Reset</button>
+              <button type="button" class="btn btn-small btn-danger" ng-click="vm.requestRemove(child)" aria-label="Remove subtag {{child.id}}">Remove</button>
+            </div>
+          </div>
+          <p class="empty" ng-if="!vm.selectedNode.children.length">No subtags yet. Add one below.</p>
+          <form id="addSubtagForm" class="inline-form" ng-submit="vm.addSubtag(vm.selectedNode)" novalidate>
+            <div class="input-row">
+              <input id="newSubtagId" class="mono" list="subtagIds" maxlength="2" inputmode="numeric" placeholder="ID" aria-label="New subtag ID" autocomplete="off" ng-model="vm.newSubtag.id">
+              <input id="newSubtagValue" class="mono" placeholder="Value" aria-label="New subtag value" autocomplete="off" ng-model="vm.newSubtag.value">
+              <button id="addSubtagButton" type="submit" class="btn">Add subtag</button>
+            </div>
+            <p class="field-error" role="alert" ng-if="vm.newSubtagError">{{vm.newSubtagError}}</p>
+          </form>
+          <datalist id="subtagIds"><option ng-repeat="o in vm.subtagOptions track by o.id" value="{{o.id}}" label="{{o.name}}"></option></datalist>
+        </div>
+
+        <div ng-if="vm.selectedNode.rawMode">
+          <label for="editRawTemplate">Raw nested TLV</label>
+          <textarea id="editRawTemplate" class="mono" rows="4" spellcheck="false" ng-model="vm.selectedNode.rawText"></textarea>
+          <button id="applyRawButton" type="button" class="btn btn-small" ng-click="vm.applyRawTemplate(vm.selectedNode)">Apply raw value</button>
+          <p class="field-error" role="alert" ng-if="vm.rawTemplateError">{{vm.rawTemplateError}}</p>
+        </div>
+      </div>
+
+      <!-- Merchant Account Information (tags 26-51): fields come from the metadata registry -->
+      <div id="accountPanel" class="account-panel" ng-if="vm.accountPanel.visible">
+        <h3>{{vm.accountPanel.title}}</h3>
+        <p class="hint" ng-if="vm.accountPanel.specNote">{{vm.accountPanel.specNote}}</p>
+        <div class="field" ng-repeat="field in vm.accountPanel.fields track by field.subId" id="accountField{{field.subId}}">
+          <label for="accountInput{{field.subId}}">{{field.label}} <code>{{vm.accountPanel.templateId}}.{{field.subId}}</code>
+            <span class="badge badge-warning" ng-if="field.confidence !== 'confirmed'">Mapping not confirmed</span></label>
+          <div class="input-row" ng-if="field.node">
+            <input id="accountInput{{field.subId}}" class="mono" autocomplete="off" ng-model="field.node.value" ng-change="vm.onAccountFieldChanged(field)">
+            <button type="button" class="btn btn-small btn-danger" ng-click="vm.removeAccountField(field)">Remove</button>
+          </div>
+          <button type="button" class="btn btn-small" ng-if="!field.node" ng-click="vm.addAccountField(field)">Add {{field.label}}</button>
+          <p class="hint" ng-if="field.hint">{{field.hint}}</p>
+        </div>
+      </div>
+
+      <div class="field">
+        <span class="label">Raw TLV</span>
+        <pre id="rawPreview" class="mono code-block">{{vm.getRawTlv(vm.selectedNode)}}</pre>
+      </div>
+
+      <div id="nodeFindings">
+        <h3>Validation for this tag</h3>
+        <p class="hint" ng-if="!vm.selectedFindings.length">No findings for this tag.</p>
+        <ul class="finding-list"><li ng-repeat="f in vm.selectedFindings track by f.key" ng-include="'finding.html'"></li></ul>
+      </div>
+
+      <div class="btn-group editor-actions">
+        <button id="moveUpButton" type="button" class="btn" ng-click="vm.moveNode(vm.selectedNode, -1)" ng-disabled="!vm.canMoveNode(vm.selectedNode, -1)">Move up</button>
+        <button id="moveDownButton" type="button" class="btn" ng-click="vm.moveNode(vm.selectedNode, 1)" ng-disabled="!vm.canMoveNode(vm.selectedNode, 1)">Move down</button>
+        <button id="resetFieldButton" type="button" class="btn" ng-click="vm.resetNode(vm.selectedNode)" ng-disabled="!vm.canResetNode(vm.selectedNode)">Reset to original</button>
+        <button id="removeTagButton" type="button" class="btn btn-danger" ng-click="vm.requestRemove(vm.selectedNode)">Remove tag</button>
+      </div>
+    </div>
+  </section>
+</div>
+
+<!-- OUTPUT + CRC -->
+<div class="results-grid">
+  <section id="outputPanel" class="panel" aria-labelledby="outputTitle">
+    <div class="panel-head">
+      <h2 id="outputTitle">Rebuilt payload</h2>
+      <span id="outputLength" class="stats">{{vm.output.length}} characters</span>
+    </div>
+    <label class="sr-only" for="outputPayload">Rebuilt payload</label>
+    <textarea id="outputPayload" class="mono" rows="4" readonly ng-model="vm.output.payload" placeholder="The rebuilt payload appears here after decoding."></textarea>
+    <p id="changeSummary" class="hint">{{vm.comparison.summaryText}}</p>
+    <p id="outputValidation" class="hint" ng-class="'status-' + vm.validation.verdict.state">{{vm.validation.summaryText}}</p>
+    <div class="toolbar">
+      <button id="copyPayloadButton" type="button" class="btn btn-primary" ng-click="vm.copyPayload()" ng-disabled="!vm.output.payload">Copy payload</button>
+      <button id="recalcCrcButton" type="button" class="btn" ng-click="vm.recalculateCrc()" ng-disabled="!vm.hasDecoded">Recalculate CRC</button>
+      <button id="downloadPayloadButton" type="button" class="btn" ng-click="vm.downloadPayload()" ng-disabled="!vm.output.payload">Download .txt</button>
+      <button id="downloadJsonButton" type="button" class="btn" ng-click="vm.downloadJson()" ng-disabled="!vm.hasDecoded">Export JSON</button>
+      <button id="copyJsonButton" type="button" class="btn" ng-click="vm.copyJson()" ng-disabled="!vm.hasDecoded">Copy JSON</button>
+      <button id="copyReportButton" type="button" class="btn" ng-click="vm.copyValidationReport()" ng-disabled="!vm.hasDecoded">Copy validation report</button>
+      <button id="resetOriginalButton" type="button" class="btn" ng-click="vm.resetToOriginal()" ng-disabled="!vm.comparison.hasChanges">Reset to original</button>
+    </div>
+    <label class="check"><input id="autoCrcOption" type="checkbox" ng-model="vm.options.autoCrc" ng-change="vm.onOptionsChanged()"> Update CRC automatically after edits</label>
+  </section>
+
+  <section id="crcPanel" class="panel" aria-labelledby="crcTitle">
+    <div class="panel-head">
+      <h2 id="crcTitle">CRC-16/CCITT-FALSE</h2>
+      <span id="crcBadge" class="badge" ng-class="'badge-' + vm.crc.state">{{vm.crc.status}}</span>
+    </div>
+    <dl class="kv">
+      <dt>Tag 63</dt><dd id="crcPresent">{{vm.crc.present ? 'Present' : 'Missing'}}</dd>
+      <dt>Declared length</dt><dd id="crcDeclaredLength" class="mono">{{vm.crc.declaredLength || '-'}}</dd>
+      <dt>Existing checksum</dt><dd id="crcExisting" class="mono">{{vm.crc.existing || '-'}}</dd>
+      <dt>Calculated checksum</dt><dd id="crcCalculated" class="mono">{{vm.crc.calculated || '-'}}</dd>
+      <dt>Characters covered</dt><dd id="crcCoveredLength" class="mono">{{vm.crc.coveredLength}}</dd>
+    </dl>
+    <p id="crcMessage" class="hint">{{vm.crc.message}}</p>
+    <div class="toolbar">
+      <button id="copyCrcButton" type="button" class="btn btn-small" ng-click="vm.copyCrc()" ng-disabled="!vm.crc.calculated">Copy calculated CRC</button>
+    </div>
+    <details id="crcCoveredDetails">
+      <summary>Show the exact characters covered</summary>
+      <pre id="crcCovered" class="mono code-block">{{vm.crc.coveredText}}</pre>
+    </details>
+    <details id="crcTool">
+      <summary>CRC calculator</summary>
+      <label for="crcToolInput">Exact text to checksum</label>
+      <textarea id="crcToolInput" class="mono" rows="3" spellcheck="false" placeholder="Characters to checksum, for example a payload that ends in 6304" ng-model="vm.crcTool.input" ng-change="vm.onCrcToolInput()"></textarea>
+      <p>Result <output id="crcToolResult" class="mono">{{vm.crcTool.result || '-'}}</output>
+        <button id="copyCrcToolButton" type="button" class="btn btn-small" ng-click="vm.copyCrcToolResult()" ng-disabled="!vm.crcTool.result">Copy</button></p>
+    </details>
+  </section>
+</div>
+
+<!-- REPORTS -->
+<section id="reportPanel" class="panel" aria-label="Reports">
+  <div class="tabs" role="tablist" aria-label="Reports">
+    <button type="button" role="tab" class="tab" ng-repeat="tab in vm.tabs track by tab.key" id="tab-{{tab.key}}" aria-controls="tabpanel-{{tab.key}}"
+      aria-selected="{{vm.activeTab === tab.key}}" ng-class="{active: vm.activeTab === tab.key}" ng-click="vm.setActiveTab(tab.key)">{{tab.label}}<span class="count" ng-if="vm.tabCounts[tab.key] !== undefined"> {{vm.tabCounts[tab.key]}}</span></button>
+  </div>
+
+  <div id="tabpanel-validation" role="tabpanel" aria-labelledby="tab-validation" ng-show="vm.activeTab === 'validation'">
+    <div id="validationVerdict" class="verdict" ng-class="'status-' + vm.validation.verdict.state">
+      <strong>{{vm.validation.verdict.label}}</strong> <span>{{vm.validation.verdict.detail}}</span>
+    </div>
+    <ul id="layerSummary" class="layer-summary"><li ng-repeat="layer in vm.validation.layers track by layer.key">{{layer.label}}: {{layer.errors}} errors, {{layer.warnings}} warnings, {{layer.infos}} info</li></ul>
+    <div class="toolbar">
+      <label class="sr-only" for="findingSeverity">Severity</label>
+      <select id="findingSeverity" ng-model="vm.findingFilter.severity">
+        <option value="all">All severities</option><option value="error">Errors</option><option value="warning">Warnings</option><option value="info">Info</option>
+      </select>
+      <label class="sr-only" for="findingLayer">Validation layer</label>
+      <select id="findingLayer" ng-model="vm.findingFilter.layer">
+        <option value="all">All layers</option><option value="structural">Structural</option><option value="emvco">EMVCo</option><option value="khqr">KHQR</option>
+      </select>
+      <button id="copyReportButton2" type="button" class="btn btn-small" ng-click="vm.copyValidationReport()" ng-disabled="!vm.hasDecoded">Copy report</button>
+    </div>
+    <ul id="findingList" class="finding-list"><li ng-repeat="f in vm.validation.findings | filter:vm.findingFilterFn track by f.key" ng-include="'finding.html'"></li></ul>
+    <p class="empty" ng-if="!(vm.validation.findings | filter:vm.findingFilterFn).length">{{vm.validation.findings.length ? 'No findings match these filters.' : (vm.hasDecoded ? 'No findings.' : 'Decode a payload to run validation.')}}</p>
+  </div>
+
+  <div id="tabpanel-changes" role="tabpanel" aria-labelledby="tab-changes" ng-show="vm.activeTab === 'changes'">
+    <dl id="changeCounts" class="kv kv-inline">
+      <dt>Added</dt><dd>{{vm.comparison.summary.added}}</dd>
+      <dt>Removed</dt><dd>{{vm.comparison.summary.removed}}</dd>
+      <dt>Modified</dt><dd>{{vm.comparison.summary.modified}}</dd>
+      <dt>Unchanged</dt><dd>{{vm.comparison.summary.unchanged}}</dd>
+    </dl>
+    <label class="check"><input id="showUnchangedOption" type="checkbox" ng-model="vm.compareShowUnchanged"> Show unchanged tags</label>
+    <div class="table-wrap">
+      <table id="changeTable" class="table">
+        <thead><tr><th scope="col">Change</th><th scope="col">Tag</th><th scope="col">Original</th><th scope="col">Current</th></tr></thead>
+        <tbody>
+          <tr ng-repeat="c in vm.comparison.changes | filter:vm.changeFilterFn track by c.key" ng-class="'change-' + c.type">
+            <td><span class="badge" ng-class="'badge-' + c.type">{{c.type}}</span></td>
+            <td><code>{{c.path}}</code> {{c.name}}</td>
+            <td class="mono">{{c.oldValue === null ? '(none)' : c.oldValue}}</td>
+            <td class="mono">{{c.newValue === null ? '(none)' : c.newValue}}</td>
+          </tr>
+        </tbody>
+      </table>
+    </div>
+    <p class="empty" ng-if="!(vm.comparison.changes | filter:vm.changeFilterFn).length">{{vm.hasDecoded ? 'No differences from the original payload.' : 'Decode a payload to compare it with later edits.'}}</p>
+    <details id="payloadCompare">
+      <summary>Compare full payloads</summary>
+      <p class="label">Original</p><pre id="originalPayloadView" class="mono code-block">{{vm.comparison.originalPayload}}</pre>
+      <p class="label">Current</p><pre id="currentPayloadView" class="mono code-block">{{vm.comparison.currentPayload}}</pre>
+    </details>
+  </div>
+
+  <div id="tabpanel-json" role="tabpanel" aria-labelledby="tab-json" ng-show="vm.activeTab === 'json'">
+    <p class="hint">Decoded structure as exported by Export JSON and Copy JSON.</p>
+    <pre id="jsonPreview" class="mono code-block">{{vm.output.json}}</pre>
+  </div>
+
+  <div id="tabpanel-tests" role="tabpanel" aria-labelledby="tab-tests" ng-show="vm.activeTab === 'tests'">
+    <div class="toolbar">
+      <button id="runAllTestsButton" type="button" class="btn btn-primary" ng-click="vm.runAllTests()">Run all tests</button>
+      <span id="testSummary" class="hint" role="status">{{vm.testSummary.passed}} passed, {{vm.testSummary.failed}} failed, {{vm.testSummary.pending}} not run</span>
+    </div>
+    <ul id="testList" class="test-list">
+      <li class="test" ng-repeat="test in vm.testCases track by test.id" id="test-{{test.id}}" ng-class="'test-' + test.status">
+        <div class="test-body">
+          <strong>{{test.title}}</strong>
+          <p class="hint">{{test.description}}</p>
+          <p class="test-message" ng-if="test.message">{{test.message}}</p>
+        </div>
+        <span class="badge" ng-class="'badge-' + test.status">{{test.status}}</span>
+        <div class="btn-group">
+          <button type="button" class="btn btn-small" ng-click="vm.runTest(test)">Run</button>
+          <button type="button" class="btn btn-small" ng-if="test.payload" ng-click="vm.loadTestSample(test)">Load payload</button>
+        </div>
+      </li>
+    </ul>
+  </div>
+</section>
+
+</main>
+
+<footer id="appFooter" class="app-footer">KHQR Inspector runs entirely in your browser. Payloads are never sent anywhere.</footer>
+
+<div id="toastRegion" class="toast-region" aria-live="polite">
+  <div id="toast" class="toast" ng-class="'toast-' + vm.toast.type" ng-if="vm.toast.visible">
+    <span>{{vm.toast.message}}</span>
+    <button type="button" class="btn btn-small" ng-click="vm.dismissToast()" aria-label="Dismiss notification">Dismiss</button>
+  </div>
+</div>
+
+</div>
+
+<!-- Recursive tree node. Scope variable: node -->
+<script type="text/ng-template" id="tagNode.html">
+  <div class="tree-row" role="treeitem" tabindex="0" id="node-{{node.uid}}"
+    aria-level="{{node.depth + 1}}" aria-selected="{{vm.isSelected(node)}}"
+    ng-attr-aria-expanded="{{node.isTemplate ? (node.expanded ? 'true' : 'false') : undefined}}"
+    ng-style="{'padding-left': (0.5 + node.depth * 1.25) + 'rem'}"
+    ng-class="{'is-selected': vm.isSelected(node), 'is-match': vm.isMatch(node), 'is-active-match': vm.isActiveMatch(node), 'is-modified': vm.isModified(node)}"
+    ng-click="vm.selectNode(node)" ng-keydown="vm.onTreeKeydown($event, node)">
+    <button type="button" class="tree-toggle" tabindex="-1" ng-if="node.isTemplate" ng-click="vm.toggleNode(node, $event)" aria-label="{{node.expanded ? 'Collapse' : 'Expand'}} tag {{node.id}}"><span class="tree-toggle-icon" ng-class="{open: node.expanded}" aria-hidden="true"></span></button>
+    <span class="tree-toggle-spacer" ng-if="!node.isTemplate"></span>
+    <code class="tag-id">{{node.id}}</code>
+    <span class="tag-name">{{vm.getTagName(node)}}</span>
+    <span class="tag-value mono" ng-if="!node.isTemplate">{{vm.getValuePreview(node)}}</span>
+    <span class="tag-value mono" ng-if="node.isTemplate">{{node.children.length}} subtags</span>
+    <span class="tag-length" title="Length">{{vm.getLength(node)}}</span>
+    <span class="badge badge-modified" ng-if="vm.isModified(node)">edited</span>
+    <span class="badge" ng-class="'badge-' + vm.getNodeSeverity(node)">{{vm.getNodeSeverity(node)}}</span>
+  </div>
+  <ul class="tree-children" role="group" ng-if="node.isTemplate && node.expanded">
+    <li class="tree-item" role="none" ng-repeat="node in node.children track by node.uid" ng-include="'tagNode.html'" ng-show="vm.isNodeVisible(node)"></li>
+  </ul>
+</script>
+
+<!-- Validation finding. Scope variable: f -->
+<script type="text/ng-template" id="finding.html">
+  <div class="finding" ng-class="'finding-' + f.severity">
+    <span class="badge" ng-class="'badge-' + f.severity">{{f.severity}}</span>
+    <code class="finding-path">{{f.path || 'payload'}}</code>
+    <span class="finding-layer">{{f.layer}}</span>
+    <div class="finding-body">
+      <p class="finding-message">{{f.message}}</p>
+      <p class="finding-fix" ng-if="f.suggestion">Suggested fix: {{f.suggestion}}</p>
+    </div>
+    <button type="button" class="btn btn-small" ng-if="f.nodeUid" ng-click="vm.goToFinding(f)">Show tag</button>
+  </div>
+</script>
+
+<!-- AngularJS 1.8.x: local copy first, CDN as a fallback if vendor/angular.min.js is absent -->
+<script src="vendor/angular.min.js"></script>
+<script>window.angular || document.write('<script src="https://cdnjs.cloudflare.com/ajax/libs/angular.js/1.8.3/angular.min.js"><\/script>');</script>
+<script src="app.js"></script>
+</body>
+</html>
