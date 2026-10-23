@@ -2,7 +2,7 @@
    KHQR Inspector - app.js
    AngularJS 1.8.x, no build step, no network access.
    Services: KhqrMetadataService, KhqrParser, KhqrSerializer, KhqrCrcService,
-             KhqrValidationService, KhqrCompareService, KhqrFixtures
+             KhqrValidationService, KhqrCompareService, KhqrQrService, KhqrFixtures
    Controller: KhqrController (controllerAs "vm", used by index.html)
    Every KHQR-specific rule lives in KhqrMetadataService or KhqrValidationService
    and is labelled with the confidence of its source.
@@ -522,11 +522,53 @@
   }]);
 
   /* ======================================================================
+     QR code: wraps vendor/qrcode.js (qrcode-generator, MIT) and draws on a canvas
+     ====================================================================== */
+  app.factory('KhqrQrService', ['$window', function ($window) {
+    function lib() {
+      var q = $window.qrcode;
+      if (!q) { throw new Error('The QR library was not found. Put vendor/qrcode.js next to index.html.'); }
+      // payloads are encoded as UTF-8 bytes so non-ASCII text survives
+      if (q.stringToBytesFuncs && q.stringToBytesFuncs['UTF-8']) { q.stringToBytes = q.stringToBytesFuncs['UTF-8']; }
+      return q;
+    }
+    function encode(text, level) {
+      var code = lib()(0, level || 'M');   // type number 0 = smallest version that fits
+      code.addData(String(text), 'Byte');
+      try { code.make(); }
+      catch (e) { throw new Error('The payload is too long for a QR code at error correction level ' + (level || 'M') + '. Try a lower level.'); }
+      var n = code.getModuleCount();
+      return { count: n, version: (n - 17) / 4, isDark: function (r, c) { return code.isDark(r, c); } };
+    }
+    // Whole pixels per module plus a 4-module quiet zone, as the QR standard requires.
+    function layout(qr, targetPx) {
+      var quiet = 4, cells = qr.count + quiet * 2, cell = Math.max(2, Math.floor(targetPx / cells));
+      return { quiet: quiet, cell: cell, size: cell * cells };
+    }
+    // Always black on white, whatever the page theme, so scanners can read it.
+    function draw(canvas, qr, targetPx) {
+      var L = layout(qr, targetPx);
+      canvas.width = L.size; canvas.height = L.size;
+      var ctx = canvas.getContext && canvas.getContext('2d');
+      if (!ctx) { return false; }
+      ctx.fillStyle = '#ffffff'; ctx.fillRect(0, 0, L.size, L.size);
+      ctx.fillStyle = '#000000';
+      for (var r = 0; r < qr.count; r++) {
+        for (var c = 0; c < qr.count; c++) {
+          if (qr.isDark(r, c)) { ctx.fillRect((c + L.quiet) * L.cell, (r + L.quiet) * L.cell, L.cell, L.cell); }
+        }
+      }
+      return true;
+    }
+    return { encode: encode, draw: draw, layout: layout };
+  }]);
+
+  /* ======================================================================
      Controller
      ====================================================================== */
   app.controller('KhqrController', ['$window', '$document', '$timeout', '$q', 'KhqrParser', 'KhqrSerializer', 'KhqrCrcService',
-    'KhqrValidationService', 'KhqrMetadataService', 'KhqrCompareService', 'KhqrFixtures',
-    function ($window, $document, $timeout, $q, Parser, Ser, Crc, Val, Meta, Cmp, Fx) {
+    'KhqrValidationService', 'KhqrMetadataService', 'KhqrCompareService', 'KhqrQrService', 'KhqrFixtures',
+    function ($window, $document, $timeout, $q, Parser, Ser, Crc, Val, Meta, Cmp, Qr, Fx) {
       var vm = this;
       var doc = $document[0];
       var infoMap = {};
@@ -592,6 +634,9 @@
       vm.compareShowUnchanged = false;
       vm.comparison = Cmp.diff(null, [], '', '');
       vm.toast = { visible: false, type: 'info', message: '' };
+      vm.qrLevels = [{ id: 'L', label: 'Low (L)' }, { id: 'M', label: 'Medium (M)' }, { id: 'Q', label: 'Quartile (Q)' }, { id: 'H', label: 'High (H)' }];
+      vm.qrOptions = { level: 'M' };
+      vm.qr = { ready: false, info: '', warning: '', message: 'Decode a payload to see its QR code.' };
 
       vm.findingFilterFn = function (f) {
         return (vm.findingFilter.severity === 'all' || f.severity === vm.findingFilter.severity) &&
@@ -694,6 +739,7 @@
         vm.output.payload = a.ser.errors.length ? '' : a.ser.text;
         vm.output.length = vm.output.payload.length;
         vm.output.json = JSON.stringify(toJson(a), null, 2);
+        renderQr();
         vm.comparison = Cmp.diff(model.baseline, vm.tree, model.source, vm.output.payload);
         updateStatus(a);
         vm.tabCounts.validation = a.val.counts.error + a.val.counts.warning;
@@ -744,6 +790,7 @@
         vm.tabCounts = { validation: 0, changes: 0 };
         vm.search = { query: vm.search.query, matches: [], activeIndex: 0 };
         vm.selectNode(null);
+        renderQr();
       }
 
       /* ---------- input panel ---------- */
@@ -1077,6 +1124,33 @@
       };
       vm.onCrcToolInput = function () { vm.crcTool.result = vm.crcTool.input ? Crc.crc16(vm.crcTool.input) : ''; };
 
+      /* ---------- QR code ---------- */
+      function renderQr() {
+        var payload = vm.output.payload;
+        if (!payload) {
+          vm.qr = { ready: false, info: '', warning: '', message: vm.hasDecoded ? 'The payload cannot be rebuilt yet, so there is no QR code. Fix the structural errors first.' : 'Decode a payload to see its QR code.' };
+          return;
+        }
+        try {
+          var enc = Qr.encode(payload, vm.qrOptions.level), errors = vm.validation.counts.error, canvas = doc.getElementById('qrCanvas');
+          if (canvas) { Qr.draw(canvas, enc, 320); }
+          vm.qr = { ready: true, message: '', info: 'Version ' + enc.version + ', ' + enc.count + ' x ' + enc.count + ' modules',
+            warning: errors ? 'This payload has ' + errors + ' validation error(s). The QR code shows it exactly as rebuilt, so scanners or banking apps may reject it.' : '' };
+        } catch (e) { vm.qr = { ready: false, info: '', warning: '', message: e.message }; }
+      }
+      vm.onQrOptionsChanged = function () { renderQr(); };
+      vm.downloadQrPng = function () {
+        if (!vm.qr.ready) { return; }
+        try {
+          var canvas = doc.createElement('canvas');
+          Qr.draw(canvas, Qr.encode(vm.output.payload, vm.qrOptions.level), 1024);
+          if (!canvas.toBlob) { showToast('This browser cannot export the QR code as a PNG.', 'error'); return; }
+          canvas.toBlob(function (blob) {
+            $timeout(function () { if (blob) { downloadBlob('khqr-qr.png', blob); } else { showToast('Could not create the PNG.', 'error'); } });
+          }, 'image/png');
+        } catch (e) { showToast(e.message, 'error'); }
+      };
+
       /* ---------- copy and export ---------- */
       function legacyCopy(text) {
         var ta = doc.createElement('textarea'), ok = false;
@@ -1093,8 +1167,9 @@
         if (nav.clipboard && nav.clipboard.writeText) { $q.when(nav.clipboard.writeText(text)).then(function () { done(true); }, function () { done(legacyCopy(text)); }); }
         else { done(legacyCopy(text)); }
       }
-      function download(name, text, type) {
-        var blob = new Blob([text], { type: type + ';charset=utf-8' }), url = $window.URL.createObjectURL(blob), a = doc.createElement('a');
+      function download(name, text, type) { downloadBlob(name, new Blob([text], { type: type + ';charset=utf-8' })); }
+      function downloadBlob(name, blob) {
+        var url = $window.URL.createObjectURL(blob), a = doc.createElement('a');
         a.href = url; a.download = name; doc.body.appendChild(a); a.click(); doc.body.removeChild(a);
         $timeout(function () { $window.URL.revokeObjectURL(url); }, 1000);
       }
@@ -1185,7 +1260,16 @@
           run: function () { var t0 = Date.now(), e = Parser.decode(''), l = Parser.decode(new Array(MAX_INPUT_LENGTH + 2).join('0')), ms = Date.now() - t0;
             return result(!!e.error && !!l.error && ms < 500, 'Empty: "' + (e.error && e.error.message) + '" Long: "' + (l.error && shorten(l.error.message, 60)) + '" (' + ms + ' ms)'); } },
         { id: 't16', title: '16. CRC algorithm check values', description: 'CRC-16/CCITT-FALSE of "123456789" is 29B1; of empty text is FFFF.', payload: '',
-          run: function () { var a = Crc.crc16('123456789'), b = Crc.crc16(''); return result(a === '29B1' && b === 'FFFF', '"123456789" gives ' + a + ', empty gives ' + b); } }
+          run: function () { var a = Crc.crc16('123456789'), b = Crc.crc16(''); return result(a === '29B1' && b === 'FFFF', '"123456789" gives ' + a + ', empty gives ' + b); } },
+        { id: 't17', title: '17. QR code encoding', description: 'The sample payload fits in a QR code and the three finder patterns are in place.', payload: Fx.khr,
+          run: function () {
+            var q = Qr.encode(Fx.khr, 'M'), ok = (q.count - 17) % 4 === 0, n = q.count;
+            [[0, 0], [0, n - 7], [n - 7, 0]].forEach(function (o) {
+              for (var i = 0; i < 7; i++) { ok = ok && q.isDark(o[0], o[1] + i) && q.isDark(o[0] + 6, o[1] + i) && q.isDark(o[0] + i, o[1]) && q.isDark(o[0] + i, o[1] + 6); }
+              ok = ok && q.isDark(o[0] + 3, o[1] + 3) && !q.isDark(o[0] + 1, o[1] + 1);
+            });
+            return result(ok, 'Version ' + q.version + ', ' + n + ' x ' + n + ' modules');
+          } }
       ];
       vm.testCases.forEach(function (c) { c.status = 'pending'; c.message = ''; });
       vm.testSummary = { passed: 0, failed: 0, pending: vm.testCases.length };

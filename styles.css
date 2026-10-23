@@ -350,6 +350,15 @@ summary:hover { color: var(--text); }
 #crcToolResult { font-weight: 650; letter-spacing: .06em; }
 #changeSummary, #outputValidation { margin-top: .5rem; }
 
+/* QR code panel (always black on white so it stays scannable in both themes) */
+.results-side { display: flex; flex-direction: column; gap: 1rem; min-width: 0; }
+.qr-frame {
+  display: flex; justify-content: center; padding: .75rem;
+  background: #ffffff; border: 1px solid var(--border); border-radius: var(--radius);
+}
+.qr-canvas { display: block; width: 100%; max-width: 20rem; height: auto; image-rendering: pixelated; }
+#qrPanel .toolbar label { font-size: .875rem; color: var(--muted-ink); }
+
 /* 9. Reports --------------------------------------------------------------- */
 .tabs { display: flex; gap: .25rem; border-bottom: 1px solid var(--border); margin-bottom: .9rem; overflow-x: auto; }
 .tab {

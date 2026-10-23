@@ -262,6 +262,7 @@
     <label class="check"><input id="autoCrcOption" type="checkbox" ng-model="vm.options.autoCrc" ng-change="vm.onOptionsChanged()"> Update CRC automatically after edits</label>
   </section>
 
+  <div class="results-side">
   <section id="crcPanel" class="panel" aria-labelledby="crcTitle">
     <div class="panel-head">
       <h2 id="crcTitle">CRC-16/CCITT-FALSE</h2>
@@ -290,6 +291,25 @@
         <button id="copyCrcToolButton" type="button" class="btn btn-small" ng-click="vm.copyCrcToolResult()" ng-disabled="!vm.crcTool.result">Copy</button></p>
     </details>
   </section>
+
+  <section id="qrPanel" class="panel" aria-labelledby="qrTitle">
+    <div class="panel-head">
+      <h2 id="qrTitle">QR code</h2>
+      <span id="qrInfo" class="stats">{{vm.qr.info}}</span>
+    </div>
+    <div id="qrFrame" class="qr-frame" ng-show="vm.qr.ready">
+      <canvas id="qrCanvas" class="qr-canvas" role="img" aria-label="QR code of the rebuilt payload"></canvas>
+    </div>
+    <p id="qrMessage" class="empty" ng-if="!vm.qr.ready">{{vm.qr.message}}</p>
+    <div id="qrWarning" class="alert alert-warning" role="status" ng-if="vm.qr.ready && vm.qr.warning">{{vm.qr.warning}}</div>
+    <div class="toolbar">
+      <label for="qrLevel">Error correction</label>
+      <select id="qrLevel" ng-model="vm.qrOptions.level" ng-options="o.id as o.label for o in vm.qrLevels" ng-change="vm.onQrOptionsChanged()"></select>
+      <button id="downloadQrButton" type="button" class="btn" ng-click="vm.downloadQrPng()" ng-disabled="!vm.qr.ready">Download PNG</button>
+    </div>
+    <p class="hint">The QR code always follows the rebuilt payload, including your edits.</p>
+  </section>
+  </div>
 </div>
 
 <!-- REPORTS -->
@@ -428,6 +448,7 @@
 <!-- AngularJS 1.8.x: local copy first, CDN as a fallback if vendor/angular.min.js is absent -->
 <script src="vendor/angular.min.js"></script>
 <script>window.angular || document.write('<script src="https://cdnjs.cloudflare.com/ajax/libs/angular.js/1.8.3/angular.min.js"><\/script>');</script>
+<script src="vendor/qrcode.js"></script>
 <script src="app.js"></script>
 </body>
 </html>
