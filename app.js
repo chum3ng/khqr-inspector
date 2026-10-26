@@ -3,6 +3,7 @@
    AngularJS 1.8.x, no build step, no network access.
    Services: KhqrMetadataService, KhqrParser, KhqrSerializer, KhqrCrcService,
              KhqrValidationService, KhqrCompareService, KhqrQrService, KhqrFixtures
+   Directive: khqrFileChange (passes the chosen file to the controller)
    Controller: KhqrController (controllerAs "vm", used by index.html)
    Every KHQR-specific rule lives in KhqrMetadataService or KhqrValidationService
    and is labelled with the confidence of its source.
@@ -521,6 +522,21 @@
     };
   }]);
 
+  // <input type="file" khqr-file-change="vm.fn($file)"> calls the expression with the chosen file
+  app.directive('khqrFileChange', ['$parse', function ($parse) {
+    return {
+      restrict: 'A',
+      link: function (scope, element, attrs) {
+        var handler = $parse(attrs.khqrFileChange);
+        element.on('change', function (event) {
+          var file = event.target.files && event.target.files[0];
+          scope.$apply(function () { handler(scope, { $file: file }); });
+          event.target.value = '';   // allows choosing the same photo again
+        });
+      }
+    };
+  }]);
+
   /* ======================================================================
      QR code: wraps vendor/qrcode.js (qrcode-generator, MIT) and draws on a canvas
      ====================================================================== */
@@ -637,6 +653,7 @@
       vm.qrLevels = [{ id: 'L', label: 'Low (L)' }, { id: 'M', label: 'Medium (M)' }, { id: 'Q', label: 'Quartile (Q)' }, { id: 'H', label: 'High (H)' }];
       vm.qrOptions = { level: 'M' };
       vm.qr = { ready: false, info: '', warning: '', message: 'Decode a payload to see its QR code.' };
+      vm.scan = { active: false, status: '' };
 
       vm.findingFilterFn = function (f) {
         return (vm.findingFilter.severity === 'all' || f.severity === vm.findingFilter.severity) &&
@@ -848,7 +865,7 @@
         try { $window.localStorage.setItem('khqrInspectorTheme', vm.theme); } catch (e) { /* storage unavailable */ }
       };
       vm.resetApplication = function () {
-        vm.clearInput(); vm.search = { query: '', matches: [], activeIndex: 0 }; vm.treeFilter = 'all';
+        vm.stopScan(); vm.clearInput(); vm.search = { query: '', matches: [], activeIndex: 0 }; vm.treeFilter = 'all';
         vm.newTag = { id: '', value: '' }; vm.newTagError = null; vm.findingFilter = { severity: 'all', layer: 'all' };
         vm.compareShowUnchanged = false; vm.crcTool = { input: '', result: '' }; vm.activeTab = 'validation';
         vm.testCases.forEach(function (t) { t.status = 'pending'; t.message = ''; }); updateTestSummary();
@@ -1139,16 +1156,107 @@
         } catch (e) { vm.qr = { ready: false, info: '', warning: '', message: e.message }; }
       }
       vm.onQrOptionsChanged = function () { renderQr(); };
-      vm.downloadQrPng = function () {
+      // Copies the QR code to the clipboard as a 1024px PNG image.
+      vm.copyQrImage = function () {
         if (!vm.qr.ready) { return; }
+        var nav = $window.navigator;
+        if (!nav.clipboard || !nav.clipboard.write || typeof $window.ClipboardItem === 'undefined') {
+          showToast('This browser cannot copy images. Right-click the QR code and choose Copy image.', 'error'); return;
+        }
         try {
           var canvas = doc.createElement('canvas');
           Qr.draw(canvas, Qr.encode(vm.output.payload, vm.qrOptions.level), 1024);
-          if (!canvas.toBlob) { showToast('This browser cannot export the QR code as a PNG.', 'error'); return; }
-          canvas.toBlob(function (blob) {
-            $timeout(function () { if (blob) { downloadBlob('khqr-qr.png', blob); } else { showToast('Could not create the PNG.', 'error'); } });
-          }, 'image/png');
+          // a promise keeps the click permission valid while the PNG is produced (needed by Safari)
+          var png = new Promise(function (resolve, reject) {
+            canvas.toBlob(function (blob) { if (blob) { resolve(blob); } else { reject(new Error('The PNG could not be created.')); } }, 'image/png');
+          });
+          $q.when(nav.clipboard.write([new $window.ClipboardItem({ 'image/png': png })])).then(
+            function () { showToast('QR code image copied.', 'success'); },
+            function () { showToast('Copying was blocked. Right-click the QR code and choose Copy image.', 'error'); });
         } catch (e) { showToast(e.message, 'error'); }
+      };
+
+      /* ---------- scan a QR code with the camera or from a photo (vendor/jsQR.js) ---------- */
+      var scanner = { stream: null, frame: 0, canvas: null, last: 0 };
+      var NO_LIB = 'The QR scanner library was not found. Put vendor/jsQR.js next to index.html.';
+      function cameraError(err) {
+        var name = err && err.name;
+        if (name === 'NotAllowedError' || name === 'SecurityError') { return 'Camera permission was denied. Allow camera access for this site in the browser settings, or use Scan photo.'; }
+        if (name === 'NotFoundError' || name === 'OverconstrainedError') { return 'No camera was found on this device. Use Scan photo instead.'; }
+        if (name === 'NotReadableError') { return 'The camera is in use by another app. Close it and try again, or use Scan photo.'; }
+        return 'The camera could not be started' + (err && err.message ? ' (' + err.message + ')' : '') + '. Use Scan photo instead.';
+      }
+      function loadScanned(text) {
+        vm.rawInput = text; vm.decode();
+        showToast(vm.hasDecoded ? 'QR code scanned and decoded.' : 'QR code scanned, but the content is not a valid KHQR payload.', vm.hasDecoded ? 'success' : 'warning');
+      }
+      vm.stopScan = function () {
+        if (scanner.frame) { $window.cancelAnimationFrame(scanner.frame); scanner.frame = 0; }
+        if (scanner.stream) { scanner.stream.getTracks().forEach(function (t) { t.stop(); }); scanner.stream = null; }
+        var video = doc.getElementById('scanVideo');
+        if (video) { video.srcObject = null; }
+        vm.scan = { active: false, status: '' };
+      };
+      function scanLoop(video) {
+        scanner.frame = $window.requestAnimationFrame(function (now) {
+          if (!vm.scan.active) { return; }
+          if (now - scanner.last > 120 && video.readyState >= 2 && video.videoWidth) {   // about 8 scans a second
+            scanner.last = now;
+            var scale = Math.min(1, 800 / video.videoWidth), w = Math.round(video.videoWidth * scale), h = Math.round(video.videoHeight * scale);
+            var cv = scanner.canvas || (scanner.canvas = doc.createElement('canvas'));
+            cv.width = w; cv.height = h;
+            var ctx = cv.getContext('2d', { willReadFrequently: true });
+            ctx.drawImage(video, 0, 0, w, h);
+            var hit = $window.jsQR(ctx.getImageData(0, 0, w, h).data, w, h, { inversionAttempts: 'dontInvert' });
+            if (hit && hit.data) { $timeout(function () { vm.stopScan(); loadScanned(hit.data); }); return; }
+          }
+          scanLoop(video);
+        });
+      }
+      vm.startScan = function () {
+        var nav = $window.navigator;
+        vm.inputMessage = null;
+        if (!$window.jsQR) { vm.inputMessage = { type: 'error', text: NO_LIB }; return; }
+        if (!nav.mediaDevices || !nav.mediaDevices.getUserMedia || $window.isSecureContext === false) {
+          vm.inputMessage = { type: 'warning', text: 'Live camera scanning needs a secure page (https or localhost). Use Scan photo instead.' }; return;
+        }
+        vm.stopScan();
+        vm.scan = { active: true, status: 'Starting the camera\u2026' };
+        $q.when(nav.mediaDevices.getUserMedia({ video: { facingMode: { ideal: 'environment' } }, audio: false })).then(function (stream) {
+          if (!vm.scan.active) { stream.getTracks().forEach(function (t) { t.stop(); }); return; }   // stopped while waiting
+          scanner.stream = stream;
+          var video = doc.getElementById('scanVideo');
+          video.srcObject = stream;
+          return $q.when(video.play()).then(function () { vm.scan.status = 'Point the camera at a KHQR code.'; scanLoop(video); });
+        }).catch(function (err) { vm.stopScan(); vm.inputMessage = { type: 'warning', text: cameraError(err) }; });
+      };
+      // Photo scan: tries a few sizes because phone photos are large and the code may be small in the frame.
+      vm.scanImageFile = function (file) {
+        if (!file) { return; }
+        vm.inputMessage = null;
+        if (!$window.jsQR) { vm.inputMessage = { type: 'error', text: NO_LIB }; return; }
+        var url = $window.URL.createObjectURL(file), img = new $window.Image();
+        img.onload = function () {
+          $window.URL.revokeObjectURL(url);
+          $timeout(function () {
+            var found = null, longest = Math.max(img.naturalWidth, img.naturalHeight), cv = doc.createElement('canvas');
+            [1600, 1000, 600].some(function (target) {
+              var scale = Math.min(1, target / longest), w = Math.max(1, Math.round(img.naturalWidth * scale)), h = Math.max(1, Math.round(img.naturalHeight * scale));
+              cv.width = w; cv.height = h;
+              var ctx = cv.getContext('2d', { willReadFrequently: true });
+              ctx.drawImage(img, 0, 0, w, h);
+              found = $window.jsQR(ctx.getImageData(0, 0, w, h).data, w, h, { inversionAttempts: 'attemptBoth' });
+              return !!found;
+            });
+            if (found && found.data) { loadScanned(found.data); }
+            else { vm.inputMessage = { type: 'warning', text: 'No QR code was found in that photo. Try a sharper, closer photo with the whole code in the frame.' }; }
+          });
+        };
+        img.onerror = function () {
+          $window.URL.revokeObjectURL(url);
+          $timeout(function () { vm.inputMessage = { type: 'error', text: 'That file could not be read as an image.' }; });
+        };
+        img.src = url;
       };
 
       /* ---------- copy and export ---------- */

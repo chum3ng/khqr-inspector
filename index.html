@@ -46,7 +46,21 @@
     <select id="sampleSelect" ng-model="vm.selectedSampleId" ng-options="s.id as s.title for s in vm.samples"></select>
     <button id="loadSampleButton" type="button" class="btn" ng-click="vm.loadSample(vm.selectedSampleId)">Load sample</button>
     <button id="clearButton" type="button" class="btn" ng-click="vm.clearInput()">Clear</button>
+    <button id="scanButton" type="button" class="btn" ng-click="vm.startScan()" ng-disabled="vm.scan.active">Scan QR</button>
+    <label class="btn file-btn" title="Choose or take a photo of a QR code">Scan photo
+      <input id="scanFileInput" class="sr-only" type="file" accept="image/*" khqr-file-change="vm.scanImageFile($file)">
+    </label>
     <label class="check"><input id="autoDecodeOption" type="checkbox" ng-model="vm.options.autoDecode" ng-change="vm.onOptionsChanged()"> Decode as I type</label>
+  </div>
+  <div id="scanPanel" class="scan-panel" ng-show="vm.scan.active">
+    <div class="scan-view">
+      <video id="scanVideo" class="scan-video" playsinline muted></video>
+      <div class="scan-guide" aria-hidden="true"></div>
+    </div>
+    <div class="scan-bar">
+      <p id="scanStatus" class="hint" role="status">{{vm.scan.status}}</p>
+      <button id="stopScanButton" type="button" class="btn btn-small" ng-click="vm.stopScan()">Stop camera</button>
+    </div>
   </div>
   <p id="inputHint" class="hint">Press Ctrl+Enter to decode. Payloads are processed in this page only.</p>
   <div id="inputError" class="alert alert-error" role="alert" ng-if="vm.parseError">
@@ -71,7 +85,7 @@
     <div class="toolbar">
       <label class="sr-only" for="qrLevel">Error correction level</label>
       <select id="qrLevel" ng-model="vm.qrOptions.level" ng-options="o.id as o.label for o in vm.qrLevels" ng-change="vm.onQrOptionsChanged()"></select>
-      <button id="downloadQrButton" type="button" class="btn btn-small" title="Download the QR code as a PNG image" aria-label="Download QR code as PNG" ng-click="vm.downloadQrPng()" ng-disabled="!vm.qr.ready">PNG</button>
+      <button id="copyQrButton" type="button" class="btn btn-small" title="Copy the QR code as an image" aria-label="Copy QR code image" ng-click="vm.copyQrImage()" ng-disabled="!vm.qr.ready">Copy</button>
     </div>
   </section>
 </div>
@@ -452,6 +466,7 @@
 <script src="vendor/angular.min.js"></script>
 <script>window.angular || document.write('<script src="https://cdnjs.cloudflare.com/ajax/libs/angular.js/1.8.3/angular.min.js"><\/script>');</script>
 <script src="vendor/qrcode.js"></script>
+<script src="vendor/jsQR.js"></script>
 <script src="app.js"></script>
 </body>
 </html>
