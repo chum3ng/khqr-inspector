@@ -640,7 +640,7 @@
       vm.removalWarnings = [];
       vm.editorError = null;
       vm.rawTemplateError = null;
-      vm.output = { payload: '', length: 0, json: '' };
+      vm.output = { payload: '', length: 0, json: '', tokens: [] };
       vm.crc = Crc.idle('Decode a payload to verify its CRC.');
       vm.crcTool = { input: '', result: '' };
       vm.validation = Val.empty();
@@ -756,6 +756,7 @@
         vm.output.payload = a.ser.errors.length ? '' : a.ser.text;
         vm.output.length = vm.output.payload.length;
         vm.output.json = JSON.stringify(toJson(a), null, 2);
+        vm.output.tokens = vm.output.payload ? tlvTokens(vm.tree) : [];
         renderQr();
         vm.comparison = Cmp.diff(model.baseline, vm.tree, model.source, vm.output.payload);
         updateStatus(a);
@@ -786,6 +787,19 @@
         void c;
       }
 
+      // Flat token list (tag, length, value) in payload order, used for the colour-coded view.
+      function tlvTokens(nodes) {
+        var out = [];
+        (function walk(list) {
+          list.forEach(function (n) {
+            var value = Ser.valueOf(n);
+            out.push({ t: 'id', s: n.id }, { t: 'len', s: Ser.lengthField(value.length) });
+            if (n.isTemplate) { walk(n.children); } else { out.push({ t: 'val', s: value }); }
+          });
+        })(nodes);
+        return out;
+      }
+
       function toJson(a) {
         function conv(nodes, parentId) {
           return nodes.map(function (n) {
@@ -800,7 +814,7 @@
 
       function clearModel() {
         vm.tree = []; vm.hasDecoded = false; infoMap = {}; model.baseline = null; model.source = '';
-        vm.output = { payload: '', length: 0, json: '' };
+        vm.output = { payload: '', length: 0, json: '', tokens: [] };
         vm.crc = Crc.idle('Decode a payload to verify its CRC.');
         vm.validation = Val.empty();
         vm.comparison = Cmp.diff(null, [], '', '');
@@ -913,13 +927,29 @@
         var rows = Array.prototype.filter.call(doc.querySelectorAll('#tagTree .tree-row'), function (el) { return el.offsetParent !== null; });
         var at = rows.indexOf($event.currentTarget);
         function focusRow(i) { if (rows[i]) { rows[i].focus(); } }
-        if (key === 'Enter' || key === ' ') { $event.preventDefault(); vm.selectNode(node); }
+        if (key === 'Enter' || key === ' ') { $event.preventDefault(); vm.selectNode(node); vm.revealEditor(); }
         else if (key === 'ArrowDown') { $event.preventDefault(); focusRow(at + 1); }
         else if (key === 'ArrowUp') { $event.preventDefault(); focusRow(at - 1); }
         else if (key === 'Home') { $event.preventDefault(); focusRow(0); }
         else if (key === 'End') { $event.preventDefault(); focusRow(rows.length - 1); }
         else if (key === 'ArrowRight' && node.isTemplate) { $event.preventDefault(); if (!node.expanded) { node.expanded = true; } else { focusRow(at + 1); } }
         else if (key === 'ArrowLeft' && node.isTemplate && node.expanded) { $event.preventDefault(); node.expanded = false; }
+      };
+
+      // On narrow screens the editor sits below the tree, so bring it into view after a tag is chosen.
+      function isStacked() { return !!($window.matchMedia && $window.matchMedia('(max-width: 1023px)').matches); }
+      function smooth() { return $window.matchMedia && $window.matchMedia('(prefers-reduced-motion: reduce)').matches ? 'auto' : 'smooth'; }
+      vm.revealEditor = function () {
+        if (!isStacked()) { return; }
+        $timeout(function () { var el = doc.getElementById('editorPanel'); if (el && el.scrollIntoView) { el.scrollIntoView({ behavior: smooth(), block: 'start' }); } }, 50);
+      };
+      vm.backToTree = function () {
+        var n = vm.selectedNode;
+        $timeout(function () {
+          var el = (n && doc.getElementById('node-' + n.uid)) || doc.getElementById('treePanel');
+          if (el && el.scrollIntoView) { el.scrollIntoView({ behavior: smooth(), block: 'center' }); }
+          if (el && el.focus) { el.focus({ preventScroll: true }); }
+        });
       };
 
       function scrollToNode(node) {

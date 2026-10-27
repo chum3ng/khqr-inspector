@@ -39,17 +39,19 @@
   <textarea id="rawInput" class="mono" rows="3" spellcheck="false" autocomplete="off" autocapitalize="off" autocorrect="off"
     placeholder="Paste a raw KHQR payload, for example one that starts with 000201"
     ng-model="vm.rawInput" ng-change="vm.onRawInputChange()" ng-keydown="vm.onInputKeydown($event)" aria-describedby="inputHint"></textarea>
-  <div class="toolbar">
+  <div class="toolbar toolbar-main">
     <button id="decodeButton" type="button" class="btn btn-primary" ng-click="vm.decode()">Decode</button>
     <button id="pasteButton" type="button" class="btn" ng-click="vm.pasteFromClipboard()">Paste</button>
-    <label class="sr-only" for="sampleSelect">Sample payload</label>
-    <select id="sampleSelect" ng-model="vm.selectedSampleId" ng-options="s.id as s.title for s in vm.samples"></select>
-    <button id="loadSampleButton" type="button" class="btn" ng-click="vm.loadSample(vm.selectedSampleId)">Load sample</button>
-    <button id="clearButton" type="button" class="btn" ng-click="vm.clearInput()">Clear</button>
     <button id="scanButton" type="button" class="btn" ng-click="vm.startScan()" ng-disabled="vm.scan.active">Scan QR</button>
     <label class="btn file-btn" title="Choose or take a photo of a QR code">Scan photo
       <input id="scanFileInput" class="sr-only" type="file" accept="image/*" khqr-file-change="vm.scanImageFile($file)">
     </label>
+    <button id="clearButton" type="button" class="btn" ng-click="vm.clearInput()">Clear</button>
+  </div>
+  <div class="toolbar toolbar-sample">
+    <label class="sr-only" for="sampleSelect">Sample payload</label>
+    <select id="sampleSelect" ng-model="vm.selectedSampleId" ng-options="s.id as s.title for s in vm.samples"></select>
+    <button id="loadSampleButton" type="button" class="btn" ng-click="vm.loadSample(vm.selectedSampleId)">Load sample</button>
     <label class="check"><input id="autoDecodeOption" type="checkbox" ng-model="vm.options.autoDecode" ng-change="vm.onOptionsChanged()"> Decode as I type</label>
   </div>
   <div id="scanPanel" class="scan-panel" ng-show="vm.scan.active">
@@ -156,6 +158,7 @@
     <p class="empty" ng-if="!vm.selectedNode">Select a tag in the tree to inspect or edit it.</p>
 
     <div id="tagEditor" ng-if="vm.selectedNode">
+      <button id="backToTreeButton" type="button" class="btn btn-small show-narrow" ng-click="vm.backToTree()">&larr; Back to tags</button>
       <p class="path" id="selectedPath">Path <code>{{vm.selectedPathLabel}}</code></p>
       <h3 id="selectedName">{{vm.getTagName(vm.selectedNode)}}</h3>
       <p class="desc" id="selectedDescription">{{vm.selectedMeta.description}}</p>
@@ -196,10 +199,26 @@
         <button id="parseNestedButton" type="button" class="btn btn-small" ng-if="vm.canParseAsTemplate(vm.selectedNode)" ng-click="vm.parseAsTemplate(vm.selectedNode)">Parse as nested TLV</button>
       </div>
 
+      <!-- Merchant Account Information (tags 26-51): fields come from the metadata registry -->
+      <div id="accountPanel" class="account-panel" ng-if="vm.accountPanel.visible">
+        <h3>{{vm.accountPanel.title}}</h3>
+        <details class="note" ng-if="vm.accountPanel.specNote"><summary>About these fields</summary><p class="hint">{{vm.accountPanel.specNote}}</p></details>
+        <div class="field" ng-repeat="field in vm.accountPanel.fields track by field.subId" id="accountField{{field.subId}}">
+          <label for="accountInput{{field.subId}}">{{field.label}} <code>{{vm.accountPanel.templateId}}.{{field.subId}}</code>
+            <span class="badge badge-warning" ng-if="field.confidence !== 'confirmed'">Mapping not confirmed</span></label>
+          <div class="input-row" ng-if="field.node">
+            <input id="accountInput{{field.subId}}" class="mono" autocomplete="off" ng-model="field.node.value" ng-change="vm.onAccountFieldChanged(field)">
+            <button type="button" class="btn btn-small btn-danger" ng-click="vm.removeAccountField(field)">Remove</button>
+          </div>
+          <button type="button" class="btn btn-small" ng-if="!field.node" ng-click="vm.addAccountField(field)">Add {{field.label}}</button>
+          <p class="hint" ng-if="field.hint">{{field.hint}}</p>
+        </div>
+      </div>
+
       <!-- Nested template editor -->
-      <div id="subtagEditor" ng-if="vm.selectedNode.isTemplate">
-        <div class="panel-head">
-          <h3>Subtags</h3>
+      <details id="subtagEditor" ng-if="vm.selectedNode.isTemplate" ng-open="!vm.accountPanel.visible">
+        <summary>Subtags ({{vm.selectedNode.children.length}})</summary>
+        <div class="subtag-tools">
           <button id="toggleRawButton" type="button" class="btn btn-small" ng-click="vm.toggleRawMode(vm.selectedNode)">{{vm.selectedNode.rawMode ? 'Edit as fields' : 'Edit as raw value'}}</button>
         </div>
 
@@ -235,27 +254,12 @@
           <button id="applyRawButton" type="button" class="btn btn-small" ng-click="vm.applyRawTemplate(vm.selectedNode)">Apply raw value</button>
           <p class="field-error" role="alert" ng-if="vm.rawTemplateError">{{vm.rawTemplateError}}</p>
         </div>
-      </div>
-
-      <!-- Merchant Account Information (tags 26-51): fields come from the metadata registry -->
-      <div id="accountPanel" class="account-panel" ng-if="vm.accountPanel.visible">
-        <h3>{{vm.accountPanel.title}}</h3>
-        <p class="hint" ng-if="vm.accountPanel.specNote">{{vm.accountPanel.specNote}}</p>
-        <div class="field" ng-repeat="field in vm.accountPanel.fields track by field.subId" id="accountField{{field.subId}}">
-          <label for="accountInput{{field.subId}}">{{field.label}} <code>{{vm.accountPanel.templateId}}.{{field.subId}}</code>
-            <span class="badge badge-warning" ng-if="field.confidence !== 'confirmed'">Mapping not confirmed</span></label>
-          <div class="input-row" ng-if="field.node">
-            <input id="accountInput{{field.subId}}" class="mono" autocomplete="off" ng-model="field.node.value" ng-change="vm.onAccountFieldChanged(field)">
-            <button type="button" class="btn btn-small btn-danger" ng-click="vm.removeAccountField(field)">Remove</button>
-          </div>
-          <button type="button" class="btn btn-small" ng-if="!field.node" ng-click="vm.addAccountField(field)">Add {{field.label}}</button>
-          <p class="hint" ng-if="field.hint">{{field.hint}}</p>
-        </div>
-      </div>
+      </details>
 
       <div class="field">
         <span class="label">Raw TLV</span>
-        <pre id="rawPreview" class="mono code-block">{{vm.getRawTlv(vm.selectedNode)}}</pre>
+        <pre id="rawPreview" class="mono code-block"><span class="tlv-id">{{vm.selectedNode.id}}</span><span class="tlv-len">{{vm.getLengthField(vm.selectedNode)}}</span><span class="tlv-val">{{vm.getRawTlv(vm.selectedNode).slice(4)}}</span></pre>
+        <p class="hint tlv-legend"><span class="tlv-id">tag</span> <span class="tlv-len">length</span> <span class="tlv-val">value</span></p>
       </div>
 
       <div id="nodeFindings">
@@ -283,6 +287,9 @@
     </div>
     <label class="sr-only" for="outputPayload">Rebuilt payload</label>
     <textarea id="outputPayload" class="mono" rows="4" readonly ng-model="vm.output.payload" placeholder="The rebuilt payload appears here after decoding."></textarea>
+    <span class="label payload-label" ng-if="vm.output.tokens.length">Color-coded view</span>
+    <div id="payloadView" class="payload-view mono" ng-if="vm.output.tokens.length"><span ng-repeat="tok in vm.output.tokens track by $index" class="tlv-{{tok.t}}">{{tok.s}}</span></div>
+    <p class="hint tlv-legend" ng-if="vm.output.tokens.length"><span class="tlv-id">tag</span> <span class="tlv-len">length</span> <span class="tlv-val">value</span>. Nested tags follow the header of their template.</p>
     <p id="changeSummary" class="hint">{{vm.comparison.summaryText}}</p>
     <p id="outputValidation" class="hint" ng-class="'status-' + vm.validation.verdict.state">{{vm.validation.summaryText}}</p>
     <div class="toolbar">
@@ -432,16 +439,20 @@
     ng-attr-aria-expanded="{{node.isTemplate ? (node.expanded ? 'true' : 'false') : undefined}}"
     ng-style="{'padding-left': (0.5 + node.depth * 1.25) + 'rem'}"
     ng-class="{'is-selected': vm.isSelected(node), 'is-match': vm.isMatch(node), 'is-active-match': vm.isActiveMatch(node), 'is-modified': vm.isModified(node)}"
-    ng-click="vm.selectNode(node)" ng-keydown="vm.onTreeKeydown($event, node)">
+    ng-click="vm.selectNode(node); vm.revealEditor()" ng-keydown="vm.onTreeKeydown($event, node)">
     <button type="button" class="tree-toggle" tabindex="-1" ng-if="node.isTemplate" ng-click="vm.toggleNode(node, $event)" aria-label="{{node.expanded ? 'Collapse' : 'Expand'}} tag {{node.id}}"><span class="tree-toggle-icon" ng-class="{open: node.expanded}" aria-hidden="true"></span></button>
     <span class="tree-toggle-spacer" ng-if="!node.isTemplate"></span>
     <code class="tag-id">{{node.id}}</code>
-    <span class="tag-name">{{vm.getTagName(node)}}</span>
-    <span class="tag-value mono" ng-if="!node.isTemplate">{{vm.getValuePreview(node)}}</span>
-    <span class="tag-value mono" ng-if="node.isTemplate">{{node.children.length}} subtags</span>
-    <span class="tag-length" title="Length">{{vm.getLength(node)}}</span>
-    <span class="badge badge-modified" ng-if="vm.isModified(node)">edited</span>
-    <span class="badge" ng-class="'badge-' + vm.getNodeSeverity(node)">{{vm.getNodeSeverity(node)}}</span>
+    <span class="tag-main">
+      <span class="tag-name">{{vm.getTagName(node)}}</span>
+      <span class="tag-value" ng-if="!node.isTemplate" title="{{vm.getValuePreview(node)}}">{{vm.getValuePreview(node)}}</span>
+      <span class="tag-value tag-count" ng-if="node.isTemplate">{{node.children.length}} subtags</span>
+    </span>
+    <span class="tag-meta">
+      <span class="tag-length" title="Length in characters">{{vm.getLength(node)}}</span>
+      <span class="badge badge-modified" ng-if="vm.isModified(node)">edited</span>
+      <span class="badge" ng-class="'badge-' + vm.getNodeSeverity(node)">{{vm.getNodeSeverity(node)}}</span>
+    </span>
   </div>
   <ul class="tree-children" role="group" ng-if="node.isTemplate && node.expanded">
     <li class="tree-item" role="none" ng-repeat="node in node.children track by node.uid" ng-include="'tagNode.html'" ng-show="vm.isNodeVisible(node)"></li>

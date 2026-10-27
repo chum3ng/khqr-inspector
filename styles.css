@@ -177,6 +177,7 @@ input:disabled, select:disabled, textarea:disabled { opacity: .6; cursor: not-al
 .check { display: inline-flex; align-items: center; gap: .45rem; font-size: .875rem; cursor: pointer; }
 .input-row { display: flex; gap: .5rem; align-items: center; }
 .input-row input { flex: 1 1 auto; }
+.input-row .btn { flex: 0 0 auto; white-space: nowrap; }
 #newTagId, #newSubtagId { flex: 0 0 4.5rem; width: 4.5rem; text-align: center; }
 
 details { margin-top: .75rem; }
@@ -251,21 +252,22 @@ summary:hover { color: var(--text); }
 
 .tree {
   list-style: none; padding: 0; margin: 0;
-  max-height: min(62vh, 36rem); overflow: auto;
+  max-height: min(70vh, 42rem); overflow: auto;
   border: 1px solid var(--border); border-radius: var(--radius); background: var(--surface);
 }
 .tree-item, .tree-children { list-style: none; margin: 0; padding: 0; }
 
 .tree-row {
-  display: flex; align-items: center; gap: .5rem;
-  min-height: 2.25rem; padding: .25rem .6rem .25rem .5rem;
+  display: flex; align-items: center; gap: .65rem;
+  min-height: 3.1rem; padding: .5rem .75rem .5rem .5rem;
   border-bottom: 1px solid var(--border-soft); cursor: pointer;
 }
 .tree-row:hover { background: var(--surface-2); }
 .tree-row.is-match { background: var(--warn-bg); }
 .tree-row.is-active-match { outline: 2px solid var(--warn); outline-offset: -2px; }
-.tree-row.is-selected { background: var(--accent-soft); box-shadow: inset 3px 0 0 var(--accent); }
-.tree-row.is-modified .tag-id { border-color: var(--accent); color: var(--accent); }
+.tree-row.is-selected { background: var(--accent-soft); box-shadow: inset 4px 0 0 var(--accent); }
+.tree-row.is-selected .tag-id { background: var(--surface); }
+.tree-row.is-modified .tag-id { box-shadow: 0 0 0 2px var(--accent); }
 
 .tree-toggle {
   flex: 0 0 1.25rem; width: 1.25rem; height: 1.25rem; padding: 0;
@@ -281,21 +283,45 @@ summary:hover { color: var(--text); }
 .tree-toggle-icon.open { transform: rotate(90deg); }
 .tree-toggle-spacer { flex: 0 0 1.25rem; }
 
+/* Tag ID chip, then a small quiet name above the value, which is the strongest text in the row */
 .tag-id {
-  flex: 0 0 auto; min-width: 2rem; text-align: center; font-weight: 650;
-  background: var(--surface-2); border: 1px solid var(--border); border-radius: 4px; padding: 0 .35rem;
+  flex: 0 0 auto; min-width: 2.4rem; text-align: center; font-size: .9rem; font-weight: 700;
+  color: var(--accent); background: var(--accent-soft);
+  border: 1px solid transparent; border-radius: 6px; padding: .15rem .4rem;
 }
-.tag-name { flex: 0 1 auto; max-width: 14rem; font-weight: 550; font-size: .875rem; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.tag-value { flex: 1 1 0; min-width: 0; color: var(--muted); font-size: .8125rem; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.tag-length { flex: 0 0 auto; min-width: 1.5rem; text-align: right; color: var(--muted); font-family: var(--font-mono); font-size: .8125rem; }
-.tree-row .badge-ok { background: transparent; border-color: transparent; color: var(--muted); font-weight: 500; }
+.tag-main { flex: 1 1 0; min-width: 0; display: flex; flex-direction: column; gap: .15rem; }
+.tag-name { font-size: .8125rem; font-weight: 500; line-height: 1.3; color: var(--muted-ink); overflow-wrap: anywhere; }
+.tag-value {
+  font-family: var(--font-mono); font-size: .9375rem; font-weight: 600; line-height: 1.35; color: var(--text);
+  display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 2; overflow: hidden; word-break: break-all;
+}
+.tag-value.tag-count { font-family: var(--font-sans); font-size: .875rem; font-weight: 500; color: var(--muted-ink); }
+.tag-meta { flex: 0 0 auto; display: flex; flex-direction: column; align-items: flex-end; gap: .2rem; }
+.tag-length { color: var(--muted); font-family: var(--font-mono); font-size: .75rem; white-space: nowrap; }
+.tag-length::before { content: "len "; }
+.tree-row .badge-ok { background: transparent; border-color: transparent; color: var(--muted); font-weight: 500; padding: 0; }
+
+/* TLV colour coding, shared by the raw preview and the payload view */
+.tlv-id  { color: var(--accent); font-weight: 700; }
+.tlv-len { color: var(--warn); font-weight: 600; }
+.tlv-val { color: var(--text); }
+.tlv-legend { margin-top: .35rem; }
+.payload-label { margin-top: .6rem; }
+.payload-view {
+  padding: .6rem .75rem; background: var(--surface-2); border: 1px solid var(--border);
+  border-radius: var(--radius); font-size: .875rem; line-height: 1.7; word-break: break-all; overflow-wrap: anywhere;
+}
 
 /* 7. Editor ---------------------------------------------------------------- */
 .inline-form { margin-top: 1rem; padding-top: .9rem; border-top: 1px solid var(--border); }
 .inline-form h3 { margin-bottom: .5rem; }
 .field-error { margin-top: .35rem; color: var(--danger); font-size: .8125rem; }
 
-#selectedName { font-size: 1.05rem; margin-top: .15rem; }
+#selectedName { font-size: 1.15rem; margin-top: .15rem; }
+.btn.show-narrow { display: none; margin-bottom: .5rem; }
+details.note { margin: .25rem 0 .5rem; }
+#subtagEditor > summary { font-weight: 650; font-size: .9rem; color: var(--text); padding: .3rem 0; }
+.subtag-tools { display: flex; justify-content: flex-end; margin: .4rem 0; }
 .path { color: var(--muted); font-size: .8125rem; }
 .desc { color: var(--muted-ink); font-size: .875rem; margin: .25rem 0 .5rem; }
 .meta-list { list-style: none; padding: 0; display: flex; flex-wrap: wrap; gap: .35rem; margin-bottom: .5rem; }
@@ -465,7 +491,8 @@ summary:hover { color: var(--text); }
 @media (max-width: 1023px) {
   .workspace { grid-template-columns: minmax(0, 1fr); }
   .results-grid { grid-template-columns: minmax(0, 1fr); }
-  .tree { max-height: 24rem; }
+  .tree { max-height: 28rem; }
+  .btn.show-narrow { display: inline-flex; }
 }
 @media (max-width: 767px) {
   .top-row { grid-template-columns: minmax(0, 1fr); }
@@ -474,7 +501,8 @@ summary:hover { color: var(--text); }
   .panel { padding: .85rem; }
   .summary { grid-template-columns: repeat(2, minmax(0, 1fr)); }
   .kv-inline { grid-template-columns: repeat(2, max-content max-content); }
-  .tag-name { max-width: 8rem; }
+  input, select, textarea, input.mono, textarea.mono { font-size: 16px; }   /* stops iOS zooming into fields */
+  #inputPanel #rawInput { min-height: 6.5rem; }
   .test { grid-template-columns: minmax(0, 1fr) auto; }
   .test .btn-group { grid-column: 1 / -1; }
   .finding {
@@ -487,8 +515,10 @@ summary:hover { color: var(--text); }
   h1 { font-size: 1.2rem; }
   .toolbar .btn, .header-actions .btn { flex: 1 1 auto; }
   #sampleSelect { flex: 1 1 100%; }
-  .tree-row .badge-ok, .tree-row .tag-length { display: none; }
-  .tag-value { flex-basis: 3rem; }
+  .tree-row .badge-ok { display: none; }
+  .toolbar-main { display: grid; grid-template-columns: 1fr 1fr; }
+  .toolbar-main #decodeButton { grid-column: 1 / -1; }
+  .toolbar-main .btn { width: 100%; }
   .subtag-row .btn-group { margin-left: 0; width: 100%; }
   .toast-region { left: .75rem; right: .75rem; max-width: none; }
 }
