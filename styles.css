@@ -404,6 +404,21 @@ details.note { margin: .25rem 0 .5rem; }
 .scan-guide { position: absolute; inset: 12% 22%; border: 2px solid rgba(255, 255, 255, .85); border-radius: 10px; pointer-events: none; box-shadow: 0 0 0 9999px rgba(0, 0, 0, .25); }
 .scan-bar { display: flex; align-items: center; justify-content: space-between; gap: .5rem; margin-top: .4rem; }
 
+/* Scanner covers the whole screen on phones and tablets, with a big Stop button at the bottom */
+@media (max-width: 767px), (pointer: coarse) and (max-width: 1023px) {
+  body.is-scanning { overflow: hidden; }   /* no page scrolling behind the full-screen camera */
+  .scan-panel { position: fixed; inset: 0; z-index: 100; margin: 0; display: flex; flex-direction: column; background: #000; }
+  .scan-view { flex: 1 1 auto; min-height: 0; border-radius: 0; }
+  .scan-video { width: 100%; height: 100%; max-height: none; object-fit: cover; }
+  .scan-guide { inset: auto; top: 50%; left: 50%; width: min(72vw, 22rem); aspect-ratio: 1; transform: translate(-50%, -50%); }
+  .scan-bar {
+    position: absolute; left: 0; right: 0; bottom: 0; flex-direction: column; gap: .75rem; margin: 0;
+    padding: 2.5rem 1rem calc(1.25rem + env(safe-area-inset-bottom, 0px)); background: linear-gradient(transparent, rgba(0, 0, 0, .8));
+  }
+  .scan-bar .hint { color: #fff; font-size: 1rem; text-align: center; }
+  .scan-bar .btn { width: 100%; max-width: 20rem; min-height: 3rem; font-size: 1rem; }
+}
+
 /* 9. Reports --------------------------------------------------------------- */
 .tabs { display: flex; gap: .25rem; border-bottom: 1px solid var(--border); margin-bottom: .9rem; overflow-x: auto; }
 .tab {

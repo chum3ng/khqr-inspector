@@ -9,7 +9,7 @@
 <title>KHQR Inspector</title>
 <link rel="stylesheet" href="styles.css">
 </head>
-<body ng-controller="KhqrController as vm" data-theme="{{vm.theme}}">
+<body ng-controller="KhqrController as vm" data-theme="{{vm.theme}}" ng-class="{'is-scanning': vm.scan.active}">
 <div class="app ng-cloak" ng-cloak>
 
 <header id="appHeader" class="app-header">

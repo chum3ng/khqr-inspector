@@ -1232,7 +1232,7 @@
           if (!vm.scan.active) { return; }
           if (now - scanner.last > 120 && video.readyState >= 2 && video.videoWidth) {   // about 8 scans a second
             scanner.last = now;
-            var scale = Math.min(1, 800 / video.videoWidth), w = Math.round(video.videoWidth * scale), h = Math.round(video.videoHeight * scale);
+            var scale = Math.min(1, 960 / video.videoWidth), w = Math.round(video.videoWidth * scale), h = Math.round(video.videoHeight * scale);
             var cv = scanner.canvas || (scanner.canvas = doc.createElement('canvas'));
             cv.width = w; cv.height = h;
             var ctx = cv.getContext('2d', { willReadFrequently: true });
@@ -1252,7 +1252,7 @@
         }
         vm.stopScan();
         vm.scan = { active: true, status: 'Starting the camera\u2026' };
-        $q.when(nav.mediaDevices.getUserMedia({ video: { facingMode: { ideal: 'environment' } }, audio: false })).then(function (stream) {
+        $q.when(nav.mediaDevices.getUserMedia({ video: { facingMode: { ideal: 'environment' }, width: { ideal: 1280 }, height: { ideal: 720 } }, audio: false })).then(function (stream) {
           if (!vm.scan.active) { stream.getTracks().forEach(function (t) { t.stop(); }); return; }   // stopped while waiting
           scanner.stream = stream;
           var video = doc.getElementById('scanVideo');
